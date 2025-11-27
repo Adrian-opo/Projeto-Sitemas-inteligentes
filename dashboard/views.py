@@ -1,5 +1,6 @@
 import json
 import serial
+import serial.tools.list_ports
 import threading
 import time
 
@@ -281,6 +282,21 @@ def arduino_status(request):
     return JsonResponse(arduino.get_status())
 
 
+def arduino_listar_portas(request):
+    """Lista todas as portas seriais disponíveis no sistema."""
+    portas = []
+    for porta in serial.tools.list_ports.comports():
+        portas.append({
+            "dispositivo": porta.device,
+            "descricao": porta.description,
+            "fabricante": porta.manufacturer or "Desconhecido"
+        })
+    return JsonResponse({
+        "portas": portas,
+        "status": arduino.get_status()
+    })
+
+
 @csrf_exempt
 def arduino_reset(request):
     """Reseta o Arduino."""
@@ -293,3 +309,70 @@ def arduino_reset(request):
         })
     return JsonResponse({"erro": "Use POST"}, status=405)
 
+
+@csrf_exempt
+def arduino_interromper(request):
+    """Interrompe o ciclo atual do Arduino."""
+    if request.method == 'POST':
+        sucesso, resposta = arduino.enviar_comando("PARAR")
+        arduino.aguardando_qr = False
+        return JsonResponse({
+            "sucesso": sucesso,
+            "resposta": resposta,
+            "mensagem": "Ciclo interrompido" if sucesso else "Falha ao interromper",
+            "status": arduino.get_status()
+        })
+    return JsonResponse({"erro": "Use POST"}, status=405)
+
+
+@csrf_exempt
+def arduino_upload(request):
+    """Faz upload do código para o Arduino via PlatformIO."""
+    if request.method == 'POST':
+        import subprocess
+        import os
+        
+        # Caminho do projeto Arduino
+        arduino_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'arduino')
+        
+        try:
+            # Desconecta para liberar a porta serial
+            arduino.desconectar()
+            
+            # Executa o upload via PlatformIO
+            resultado = subprocess.run(
+                ['platformio', 'run', '--target', 'upload'],
+                cwd=arduino_dir,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            sucesso = resultado.returncode == 0
+            
+            return JsonResponse({
+                "sucesso": sucesso,
+                "mensagem": "Upload concluído!" if sucesso else "Erro no upload",
+                "stdout": resultado.stdout[-2000:] if resultado.stdout else "",
+                "stderr": resultado.stderr[-500:] if resultado.stderr else "",
+                "status": arduino.get_status()
+            })
+        except subprocess.TimeoutExpired:
+            return JsonResponse({
+                "sucesso": False,
+                "erro": "Timeout: Upload demorou mais de 2 minutos",
+                "status": arduino.get_status()
+            })
+        except FileNotFoundError:
+            return JsonResponse({
+                "sucesso": False,
+                "erro": "PlatformIO não encontrado. Instale com: pip install platformio",
+                "status": arduino.get_status()
+            })
+        except Exception as e:
+            return JsonResponse({
+                "sucesso": False,
+                "erro": str(e),
+                "status": arduino.get_status()
+            })
+    return JsonResponse({"erro": "Use POST"}, status=405)

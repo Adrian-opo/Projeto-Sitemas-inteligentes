@@ -20,6 +20,43 @@
           DashLog
         </span>
       </a>
+      <!-- Controles Arduino -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <span id="arduino-status" class="text-sm text-gray-500">
+          <i class="fas fa-circle text-red-500"></i> Desconectado
+        </span>
+        <select id="porta-arduino" class="text-sm border rounded px-2 py-1 bg-white" title="Selecione a porta do Arduino">
+          <option value="">Carregando portas...</option>
+        </select>
+        <button onclick="carregarPortas()" 
+          class="bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded text-sm" title="Atualizar lista de portas">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+        <button onclick="conectarArduino()" 
+          class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-plug"></i> Conectar
+        </button>
+        <button onclick="iniciarCiclo()" 
+          class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-play"></i> Iniciar
+        </button>
+        <button onclick="interromperCiclo()" 
+          class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-stop"></i> Interromper
+        </button>
+        <button onclick="resetArduino()" 
+          class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-undo"></i> Reset
+        </button>
+        <button onclick="uploadArduino()" 
+          class="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-upload"></i> Upload
+        </button>
+        <button onclick="location.reload()" 
+          class="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm">
+          <i class="fas fa-sync"></i> Atualizar
+        </button>
+      </div>
     </div>
   </nav>
 
@@ -228,7 +265,125 @@
     document.addEventListener("DOMContentLoaded", () => {
       ciclo();
       setInterval(ciclo, 2000); // polling rápido a cada 2s
+      atualizarStatusArduino(); // verifica status inicial
+      setInterval(atualizarStatusArduino, 5000); // atualiza status a cada 5s
+      carregarPortas(); // carrega portas disponíveis
     });
+
+    // ===== CONTROLE ARDUINO =====
+    async function carregarPortas() {
+      const select = document.getElementById('porta-arduino');
+      try {
+        const resp = await fetch("/api/arduino/portas/");
+        const data = await resp.json();
+        select.innerHTML = '';
+        
+        if (data.portas.length === 0) {
+          select.innerHTML = '<option value="">Nenhuma porta encontrada</option>';
+        } else {
+          data.portas.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.dispositivo;
+            option.textContent = `${p.dispositivo} (${p.descricao})`;
+            select.appendChild(option);
+          });
+        }
+      } catch (e) {
+        select.innerHTML = '<option value="">Erro ao carregar</option>';
+        console.error("Erro ao carregar portas:", e);
+      }
+    }
+
+    async function atualizarStatusArduino() {
+      try {
+        const resp = await fetch("/api/arduino/status/");
+        const data = await resp.json();
+        const statusEl = document.getElementById("arduino-status");
+        
+        if (data.conectado) {
+          statusEl.innerHTML = `<i class="fas fa-circle text-green-500"></i> Conectado`;
+          if (data.aguardando_qr) {
+            statusEl.innerHTML += ` <span class="text-yellow-500">(Aguardando QR)</span>`;
+          }
+        } else {
+          statusEl.innerHTML = `<i class="fas fa-circle text-red-500"></i> Desconectado`;
+        }
+      } catch (e) {
+        console.error("Erro ao verificar status:", e);
+      }
+    }
+
+    async function conectarArduino() {
+      const porta = document.getElementById('porta-arduino').value;
+      try {
+        const resp = await fetch("/api/arduino/conectar/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ porta: porta })
+        });
+        const data = await resp.json();
+        alert(data.sucesso ? "✅ Arduino conectado em " + porta + "!" : "❌ Falha: " + data.mensagem);
+        atualizarStatusArduino();
+      } catch (e) {
+        alert("❌ Erro ao conectar: " + e.message);
+      }
+    }
+
+    async function iniciarCiclo() {
+      try {
+        const resp = await fetch("/api/arduino/iniciar/", { method: "POST" });
+        const data = await resp.json();
+        if (data.sucesso) {
+          alert("✅ Ciclo iniciado! Garra pegando objeto...");
+        } else {
+          alert("❌ Erro: " + JSON.stringify(data.resposta));
+        }
+        atualizarStatusArduino();
+      } catch (e) {
+        alert("❌ Erro: " + e.message);
+      }
+    }
+
+    async function interromperCiclo() {
+      if (!confirm("Tem certeza que deseja interromper o ciclo?")) return;
+      try {
+        const resp = await fetch("/api/arduino/interromper/", { method: "POST" });
+        const data = await resp.json();
+        alert(data.sucesso ? "⏹️ Ciclo interrompido!" : "❌ Falha: " + data.mensagem);
+        atualizarStatusArduino();
+      } catch (e) {
+        alert("❌ Erro: " + e.message);
+      }
+    }
+
+    async function resetArduino() {
+      if (!confirm("Tem certeza que deseja resetar o Arduino?")) return;
+      try {
+        const resp = await fetch("/api/arduino/reset/", { method: "POST" });
+        const data = await resp.json();
+        alert(data.sucesso ? "✅ Arduino resetado!" : "❌ Falha no reset");
+        atualizarStatusArduino();
+      } catch (e) {
+        alert("❌ Erro: " + e.message);
+      }
+    }
+
+    async function uploadArduino() {
+      if (!confirm("Fazer upload do código para o Arduino?\n\nIsso vai compilar e enviar o código para o dispositivo.")) return;
+      alert("⏳ Iniciando upload... Aguarde, pode demorar alguns segundos.");
+      try {
+        const resp = await fetch("/api/arduino/upload/", { method: "POST" });
+        const data = await resp.json();
+        if (data.sucesso) {
+          alert("✅ Upload concluído com sucesso!\n\n" + (data.mensagem || ""));
+        } else {
+          alert("❌ Erro no upload:\n" + (data.mensagem || data.erro || "Erro desconhecido"));
+        }
+        atualizarStatusArduino();
+      } catch (e) {
+        alert("❌ Erro: " + e.message);
+      }
+    }
   </script>
 </body>
 

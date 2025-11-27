@@ -412,6 +412,7 @@ void setup() {
   Serial.println("  REGIAO:<nome>  - Processa regiao (norte/nordeste/centro-oeste/sudeste/sul)");
   Serial.println("  C              - Calibracao inicial");
   Serial.println("  STATUS         - Mostra estado atual do sistema");
+  Serial.println("  PARAR          - Interrompe ciclo atual");
   Serial.println("  RESET          - Reset de emergencia");
   
   // Calibração inicial automática
@@ -499,6 +500,18 @@ void loop() {
         estadoAtual = AGUARDANDO;
         voltar_posicao_inicial();
         Serial.println("RESET_OK");
+      }
+      // PARAR - Interrompe o ciclo atual
+      else if (comando.equalsIgnoreCase("PARAR") || comando.equalsIgnoreCase("STOP")) {
+        Serial.println("INTERROMPENDO_CICLO...");
+        motorOff_M1();
+        motorOff_M3();
+        motor1_moveu = false;
+        motor3_moveu = false;
+        regiaoAtual = "";
+        estadoAtual = AGUARDANDO;
+        Serial.println("CICLO_INTERROMPIDO");
+        Serial.println("OK");
       }
       else {
         Serial.print("COMANDO_DESCONHECIDO:");

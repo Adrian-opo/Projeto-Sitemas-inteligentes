@@ -15,5 +15,8 @@ urlpatterns= [
   path("api/arduino/iniciar/", views.arduino_iniciar_ciclo, name="arduino_iniciar"),
   path("api/arduino/regiao/", views.arduino_enviar_regiao, name="arduino_regiao"),
   path("api/arduino/status/", views.arduino_status, name="arduino_status"),
+  path("api/arduino/portas/", views.arduino_listar_portas, name="arduino_portas"),
   path("api/arduino/reset/", views.arduino_reset, name="arduino_reset"),
+  path("api/arduino/interromper/", views.arduino_interromper, name="arduino_interromper"),
+  path("api/arduino/upload/", views.arduino_upload, name="arduino_upload"),
 ]
