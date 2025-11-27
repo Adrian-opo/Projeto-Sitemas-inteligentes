@@ -1,0 +1,767 @@
+#include <Arduino.h>
+#include <Servo.h>
+
+// ===== MOTORES DE PASSO =====
+// Motor 1: pinos 30, 31, 32, 33 (Lado A)
+const int IN1_M1 = 30, IN2_M1 = 31, IN3_M1 = 32, IN4_M1 = 33;
+
+// Motor 2: pinos 36, 37, 38, 39 (Lado A - juntos)
+const int IN1_M2 = 36, IN2_M2 = 37, IN3_M2 = 38, IN4_M2 = 39;
+
+// Motor 3: pinos 26, 27, 28, 29 (Lado B - oposto)
+const int IN1_M3 = 26, IN2_M3 = 27, IN3_M3 = 28, IN4_M3 = 29;
+
+const long STEPS_PER_REV = 2048;
+const float RPM_TARGET = 15.0f;
+const float RPM_START  = 3.0f;
+const float RAMP_FRAC  = 0.15f;
+
+const uint8_t HALFSTEP[8][4] = {
+  {1,0,0,0}, {1,1,0,0}, {0,1,0,0}, {0,1,1,0},
+  {0,0,1,0}, {0,0,1,1}, {0,0,0,1}, {1,0,0,1}
+};
+
+volatile int sidx_M1 = 0;
+volatile int sidx_M2 = 0;
+volatile int sidx_M3 = 0;
+
+// Controle de posição dos motores (em passos)
+volatile long posicao_M1 = 0;
+volatile long posicao_M2 = 0;
+volatile long posicao_M3 = 0;
+
+// Histórico do último movimento
+struct UltimoMovimento {
+  char motor = '0';
+  long passos = 0;
+  bool direcao_cw = true;
+} ultimo_mov;
+
+// ===== SERVOS =====
+// Pinos originais do Python: 3=garra, 5=base, 8=antebraco, 10=braco
+const int SERVO_GARRA = 3;
+const int SERVO_BASE = 5;
+const int SERVO_ANTEBRACO = 8;
+const int SERVO_BRACO = 10;
+
+Servo servoGarra;
+Servo servoBase;
+Servo servoAntebraco;
+Servo servoBraco;
+
+struct PosicaoServos {
+  int garra = 120;
+  int base = 90;
+  int antebraco = 60;
+  int braco = 120;
+} posicoes;
+
+// ===== FUNÇÕES MOTORES DE PASSO =====
+inline unsigned long usPerHalfStep(float rpm) {
+  if (rpm < 0.1f) rpm = 0.1f;
+  return (unsigned long)(60000000.0f / (STEPS_PER_REV * rpm));
+}
+
+inline void writeStep_M1(int i) {
+  digitalWrite(IN1_M1, HALFSTEP[i][0]);
+  digitalWrite(IN2_M1, HALFSTEP[i][1]);
+  digitalWrite(IN3_M1, HALFSTEP[i][2]);
+  digitalWrite(IN4_M1, HALFSTEP[i][3]);
+}
+
+inline void writeStep_M2(int i) {
+  digitalWrite(IN1_M2, HALFSTEP[i][0]);
+  digitalWrite(IN2_M2, HALFSTEP[i][1]);
+  digitalWrite(IN3_M2, HALFSTEP[i][2]);
+  digitalWrite(IN4_M2, HALFSTEP[i][3]);
+}
+
+inline void writeStep_M3(int i) {
+  digitalWrite(IN1_M3, HALFSTEP[i][0]);
+  digitalWrite(IN2_M3, HALFSTEP[i][1]);
+  digitalWrite(IN3_M3, HALFSTEP[i][2]);
+  digitalWrite(IN4_M3, HALFSTEP[i][3]);
+}
+
+inline void stepOnce_M1(bool cw, unsigned long dwell_us) {
+  writeStep_M1(sidx_M1);
+  sidx_M1 = cw ? ((sidx_M1 + 1) % 8) : ((sidx_M1 + 7) % 8);
+  if (cw) posicao_M1++; else posicao_M1--;
+  delayMicroseconds(dwell_us);
+}
+
+inline void stepOnce_M2(bool cw, unsigned long dwell_us) {
+  writeStep_M2(sidx_M2);
+  sidx_M2 = cw ? ((sidx_M2 + 1) % 8) : ((sidx_M2 + 7) % 8);
+  if (cw) posicao_M2++; else posicao_M2--;
+  delayMicroseconds(dwell_us);
+}
+
+inline void stepOnce_M3(bool cw, unsigned long dwell_us) {
+  writeStep_M3(sidx_M3);
+  sidx_M3 = cw ? ((sidx_M3 + 1) % 8) : ((sidx_M3 + 7) % 8);
+  if (cw) posicao_M3++; else posicao_M3--;
+  delayMicroseconds(dwell_us);
+}
+
+inline void stepBoth(bool cw, unsigned long dwell_us) {
+  writeStep_M1(sidx_M1);
+  writeStep_M2(sidx_M2);
+  sidx_M1 = cw ? ((sidx_M1 + 1) % 8) : ((sidx_M1 + 7) % 8);
+  sidx_M2 = cw ? ((sidx_M2 + 1) % 8) : ((sidx_M2 + 7) % 8);
+  if (cw) { posicao_M1++; posicao_M2++; }
+  else { posicao_M1--; posicao_M2--; }
+  delayMicroseconds(dwell_us);
+}
+
+void motorOff_M1() {
+  digitalWrite(IN1_M1, LOW);
+  digitalWrite(IN2_M1, LOW);
+  digitalWrite(IN3_M1, LOW);
+  digitalWrite(IN4_M1, LOW);
+}
+
+void motorOff_M2() {
+  digitalWrite(IN1_M2, LOW);
+  digitalWrite(IN2_M2, LOW);
+  digitalWrite(IN3_M2, LOW);
+  digitalWrite(IN4_M2, LOW);
+}
+
+void motorOff_M3() {
+  digitalWrite(IN1_M3, LOW);
+  digitalWrite(IN2_M3, LOW);
+  digitalWrite(IN3_M3, LOW);
+  digitalWrite(IN4_M3, LOW);
+}
+
+void motorOff_Both() {
+  motorOff_M1();
+  motorOff_M2();
+}
+
+void mostrarPosicao() {
+  Serial.print("POS:");
+  Serial.print(posicao_M1);
+  Serial.print(",");
+  Serial.print(posicao_M2);
+  Serial.print(",");
+  Serial.print(posicao_M3);
+  Serial.print("|GRAUS:");
+  float graus_M1 = (posicao_M1 * 360.0) / STEPS_PER_REV;
+  float graus_M2 = (posicao_M2 * 360.0) / STEPS_PER_REV;
+  float graus_M3 = (posicao_M3 * 360.0) / STEPS_PER_REV;
+  Serial.print(graus_M1, 1);
+  Serial.print(",");
+  Serial.print(graus_M2, 1);
+  Serial.print(",");
+  Serial.println(graus_M3, 1);
+}
+
+void zerarPosicao() {
+  posicao_M1 = 0;
+  posicao_M2 = 0;
+  posicao_M3 = 0;
+  Serial.println("Posicoes zeradas!");
+  mostrarPosicao();
+}
+
+void moverMotor1_ComPosicao(long steps, bool cw, float rpm, bool mostrar = true) {
+  rpm = max(1.0f, rpm);
+  const unsigned long usDelay = usPerHalfStep(rpm);
+  
+  long intervalo = max(1L, steps / 20); // Mostra 20 atualizações
+  
+  for (long i = 0; i < steps; i++) {
+    stepOnce_M1(cw, usDelay);
+    if (mostrar && (i % intervalo == 0 || i == steps - 1)) {
+      mostrarPosicao();
+    }
+  }
+  motorOff_M1();
+  
+  // Salva último movimento
+  ultimo_mov.motor = '1';
+  ultimo_mov.passos = steps;
+  ultimo_mov.direcao_cw = cw;
+}
+
+void moverMotor2_ComPosicao(long steps, bool cw, float rpm, bool mostrar = true) {
+  rpm = max(1.0f, rpm);
+  const unsigned long usDelay = usPerHalfStep(rpm);
+  
+  long intervalo = max(1L, steps / 20); // Mostra 20 atualizações
+  
+  for (long i = 0; i < steps; i++) {
+    stepOnce_M2(cw, usDelay);
+    if (mostrar && (i % intervalo == 0 || i == steps - 1)) {
+      mostrarPosicao();
+    }
+  }
+  motorOff_M2();
+  
+  // Salva último movimento
+  ultimo_mov.motor = '2';
+  ultimo_mov.passos = steps;
+  ultimo_mov.direcao_cw = cw;
+}
+
+void moverMotor3_ComPosicao(long steps, bool cw, float rpm, bool mostrar = true) {
+  rpm = max(1.0f, rpm);
+  const unsigned long usDelay = usPerHalfStep(rpm);
+  
+  long intervalo = max(1L, steps / 20); // Mostra 20 atualizações
+  
+  for (long i = 0; i < steps; i++) {
+    stepOnce_M3(cw, usDelay);
+    if (mostrar && (i % intervalo == 0 || i == steps - 1)) {
+      mostrarPosicao();
+    }
+  }
+  motorOff_M3();
+  
+  // Salva último movimento
+  ultimo_mov.motor = '3';
+  ultimo_mov.passos = steps;
+  ultimo_mov.direcao_cw = cw;
+}
+
+void rotateAccel_Both(long steps, bool cw, float rpmTarget) {
+  rpmTarget = max(1.0f, rpmTarget);
+  const unsigned long usStart  = usPerHalfStep(RPM_START);
+  const unsigned long usTarget = usPerHalfStep(rpmTarget);
+
+  long accelSteps = (long)(steps * RAMP_FRAC);
+  long decelSteps = accelSteps;
+  if (accelSteps + decelSteps > steps) {
+    accelSteps = steps / 2; 
+    decelSteps = steps - accelSteps;
+  }
+  long cruiseSteps = steps - accelSteps - decelSteps;
+
+  long intervalo = max(1L, steps / 20);
+  long contador = 0;
+
+  for (long i = 0; i < accelSteps; i++) {
+    unsigned long dwell = usStart - (unsigned long)((usStart - usTarget) * ((float)i / (float)max(1L, accelSteps)));
+    stepBoth(cw, dwell);
+    if (contador++ % intervalo == 0) mostrarPosicao();
+  }
+  for (long i = 0; i < cruiseSteps; i++) {
+    stepBoth(cw, usTarget);
+    if (contador++ % intervalo == 0) mostrarPosicao();
+  }
+  for (long i = 0; i < decelSteps; i++) {
+    unsigned long dwell = usTarget + (unsigned long)((usStart - usTarget) * ((float)i / (float)max(1L, decelSteps)));
+    stepBoth(cw, dwell);
+    if (contador++ % intervalo == 0) mostrarPosicao();
+  }
+  mostrarPosicao(); // Posição final
+  motorOff_Both();
+  
+  // Salva último movimento
+  ultimo_mov.motor = 'A';
+  ultimo_mov.passos = steps;
+  ultimo_mov.direcao_cw = cw;
+}
+
+void desfazerUltimoMovimento() {
+  if (ultimo_mov.motor == '0') {
+    Serial.println("Nenhum movimento para desfazer!");
+    return;
+  }
+  
+  Serial.print("Desfazendo ultimo movimento: Motor ");
+  Serial.print(ultimo_mov.motor);
+  Serial.print(", ");
+  Serial.print(ultimo_mov.passos);
+  Serial.print(" passos, direcao ");
+  Serial.println(ultimo_mov.direcao_cw ? "CW->CCW" : "CCW->CW");
+  
+  // Inverte a direção
+  bool direcao_oposta = !ultimo_mov.direcao_cw;
+  
+  if (ultimo_mov.motor == '1') {
+    moverMotor1_ComPosicao(ultimo_mov.passos, direcao_oposta, RPM_TARGET, true);
+  } else if (ultimo_mov.motor == '2') {
+    moverMotor2_ComPosicao(ultimo_mov.passos, direcao_oposta, RPM_TARGET, true);
+  } else if (ultimo_mov.motor == '3') {
+    moverMotor3_ComPosicao(ultimo_mov.passos, direcao_oposta, RPM_TARGET, true);
+  } else if (ultimo_mov.motor == 'A') {
+    rotateAccel_Both(ultimo_mov.passos, direcao_oposta, RPM_TARGET);
+  }
+  
+  Serial.println("Movimento desfeito!");
+  // Limpa histórico após desfazer para evitar loop infinito
+  ultimo_mov.motor = '0';
+}
+
+// ===== PROCESSAMENTO DE QR CODE =====
+void processarQRCode(int id) {
+  Serial.print("QR CODE ID ");
+  Serial.print(id);
+  Serial.println(" detectado!");
+  
+  switch(id) {
+    case 1:
+      Serial.println("Executando: Motor1 Forward 1550 passos");
+      moverMotor1_ComPosicao(1550, true, RPM_TARGET, true);
+      Serial.println("Aguardando 10 segundos...");
+      delay(10000);
+      Serial.println("Retornando a posicao inicial...");
+      desfazerUltimoMovimento();
+      break;
+      
+    case 2:
+      Serial.println("Executando: Motor1 Backward 7550 passos");
+      moverMotor1_ComPosicao(7550, false, RPM_TARGET, true);
+      Serial.println("Aguardando 10 segundos...");
+      delay(10000);
+      Serial.println("Retornando a posicao inicial...");
+      desfazerUltimoMovimento();
+      break;
+      
+    case 3:
+      Serial.println("Executando: Motor3 Backward 1550 passos (lado oposto)");
+      moverMotor3_ComPosicao(1550, false, RPM_TARGET, true);
+      Serial.println("Aguardando 10 segundos...");
+      delay(10000);
+      Serial.println("Retornando a posicao inicial...");
+      desfazerUltimoMovimento();
+      break;
+      
+    case 4:
+      Serial.println("Executando: Motor3 Forward 7550 passos (lado oposto)");
+      moverMotor3_ComPosicao(7550, true, RPM_TARGET, true);
+      Serial.println("Aguardando 10 segundos...");
+      delay(10000);
+      Serial.println("Retornando a posicao inicial...");
+      desfazerUltimoMovimento();
+      break;
+      
+    default:
+      Serial.print("ID ");
+      Serial.print(id);
+      Serial.println(" nao reconhecido!");
+      break;
+  }
+  
+  Serial.println("Processo de separacao concluido!");
+}
+
+// ===== FUNÇÕES DOS SERVOS =====
+void move_servo_gradual(Servo &servo, int start, int end, int step_delay = 20) {
+  int passo = (end > start) ? 1 : -1;
+  for (int ang = start; ang != end; ang += passo) {
+    servo.write(ang);
+    delay(step_delay);
+  }
+  servo.write(end);
+}
+
+void calibracao_inicial() {
+  Serial.println("Calibracao inicial do hardware...");
+  
+  Serial.println("   Movendo base suavemente...");
+  for (int pos = 0; pos <= 90; pos += 2) {
+    servoBase.write(pos);
+    delay(50);
+  }
+  delay(300);
+  
+  Serial.println("   Movendo braco suavemente...");
+  for (int pos = 90; pos <= 120; pos += 2) {
+    servoBraco.write(pos);
+    delay(50);
+  }
+  delay(300);
+  
+  Serial.println("   Movendo antebraco suavemente...");
+  for (int pos = 90; pos >= 60; pos -= 2) {
+    servoAntebraco.write(pos);
+    delay(50);
+  }
+  delay(300);
+  
+  Serial.println("   Posicionando garra suavemente...");
+  for (int pos = 100; pos <= 120; pos += 2) {
+    servoGarra.write(pos);
+    delay(50);
+  }
+  delay(500);
+  
+  Serial.println("Calibracao inicial concluida!");
+  
+  posicoes.garra = 120;
+  posicoes.base = 90;
+  posicoes.antebraco = 60;
+  posicoes.braco = 120;
+}
+
+void pegar_objeto() {
+  Serial.println("1. Pegando objeto...");
+  
+  move_servo_gradual(servoGarra, posicoes.garra, 120, 20);
+  posicoes.garra = 120;
+  delay(200);
+  
+  move_servo_gradual(servoBase, posicoes.base, 180, 20);
+  posicoes.base = 180;
+  delay(300);
+  
+  Serial.println("   Descendo garra para pegar objeto...");
+  move_servo_gradual(servoBraco, posicoes.braco, 15, 20);
+  posicoes.braco = 15;
+  delay(300);
+  
+  move_servo_gradual(servoGarra, posicoes.garra, 140, 20);
+  posicoes.garra = 140;
+  delay(500);
+  
+  move_servo_gradual(servoBraco, posicoes.braco, 90, 20);
+  posicoes.braco = 90;
+  delay(300);
+  
+  move_servo_gradual(servoBraco, posicoes.braco, 120, 20);
+  posicoes.braco = 120;
+  
+  Serial.println("READY_FOR_QR"); // Sinal para Python ler QR code
+}
+
+void mover_para_posicao_selecao(int pos_base, int pos_antebraco) {
+  Serial.println("Movendo para posicao de selecao...");
+  
+  move_servo_gradual(servoBase, posicoes.base, pos_base, 20);
+  posicoes.base = pos_base;
+  delay(300);
+  
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, pos_antebraco, 20);
+  posicoes.antebraco = pos_antebraco;
+  delay(300);
+  
+  Serial.println("Posicao de selecao alcancada!");
+}
+
+void colocar_na_esteira() {
+  Serial.println("2. Colocando na esteira...");
+  
+  Serial.println("   Descendo garra para colocar na esteira...");
+  move_servo_gradual(servoBraco, posicoes.braco, 37, 20);
+  posicoes.braco = 37;
+  delay(300);
+  
+  move_servo_gradual(servoGarra, posicoes.garra, 120, 20);
+  posicoes.garra = 120;
+  delay(300);
+  
+  move_servo_gradual(servoBraco, posicoes.braco, 80, 20);
+  posicoes.braco = 80;
+  
+  Serial.println("READY_FOR_CONVEYOR"); // Sinal para ativar esteira
+}
+
+void voltar_posicao_inicial() {
+  Serial.println("3. Voltando a posicao inicial...");
+  
+  move_servo_gradual(servoGarra, posicoes.garra, 120, 40);
+  posicoes.garra = 120;
+  delay(200);
+  
+  move_servo_gradual(servoBase, posicoes.base, 90, 40);
+  posicoes.base = 90;
+  delay(200);
+  
+  move_servo_gradual(servoBraco, posicoes.braco, 120, 40);
+  posicoes.braco = 120;
+  delay(200);
+  
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 60, 40);
+  posicoes.antebraco = 60;
+  
+  Serial.println("Posicao inicial restaurada!");
+}
+
+// ===== SETUP =====
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n=== SISTEMA COMPLETO: SERVOS + MOTORES DE PASSO ===");
+  Serial.println("Aguardando comandos via serial...");
+  
+  // Configura motores de passo
+  pinMode(IN1_M1, OUTPUT);
+  pinMode(IN2_M1, OUTPUT);
+  pinMode(IN3_M1, OUTPUT);
+  pinMode(IN4_M1, OUTPUT);
+  motorOff_M1();
+  
+  pinMode(IN1_M2, OUTPUT);
+  pinMode(IN2_M2, OUTPUT);
+  pinMode(IN3_M2, OUTPUT);
+  pinMode(IN4_M2, OUTPUT);
+  motorOff_M2();
+  
+  pinMode(IN1_M3, OUTPUT);
+  pinMode(IN2_M3, OUTPUT);
+  pinMode(IN3_M3, OUTPUT);
+  pinMode(IN4_M3, OUTPUT);
+  motorOff_M3();
+  
+  // Configura servos
+  servoGarra.attach(SERVO_GARRA);
+  servoBase.attach(SERVO_BASE);
+  servoAntebraco.attach(SERVO_ANTEBRACO);
+  servoBraco.attach(SERVO_BRACO);
+  
+  Serial.println("\nComandos disponiveis:");
+  Serial.println("=== SERVOS ===");
+  Serial.println("  C - Calibracao inicial");
+  Serial.println("  P - Pegar objeto");
+  Serial.println("  E - Colocar na esteira");
+  Serial.println("  V - Voltar posicao inicial");
+  Serial.println("  S - Sequencia completa");
+  Serial.println("  G<angulo> - Mover garra (ex: G90)");
+  Serial.println("  B<angulo> - Mover base (ex: B180)");
+  Serial.println("  A<angulo> - Mover antebraco (ex: A60)");
+  Serial.println("  R<angulo> - Mover braco (ex: R120)");
+  Serial.println("\n=== MOTORES DE PASSO ===");
+  Serial.println("  M - Teste motores ambos");
+  Serial.println("  1F<passos> - Motor1 frente (ex: 1F100)");
+  Serial.println("  1B<passos> - Motor1 tras (ex: 1B100)");
+  Serial.println("  2F<passos> - Motor2 frente (ex: 2F100)");
+  Serial.println("  2B<passos> - Motor2 tras (ex: 2B100)");
+  Serial.println("  3F<passos> - Motor3 frente (ex: 3F100)");
+  Serial.println("  3B<passos> - Motor3 tras (ex: 3B100)");
+  Serial.println("  Z - Zerar posicoes");
+  Serial.println("  ? - Mostrar posicao atual");
+  Serial.println("  U - Desfazer ultimo movimento");
+  Serial.println("\n=== SISTEMA INTEGRADO ===");
+  Serial.println("  QR<id> - Processar QR code (ex: QR1, QR2, QR3, QR4)");
+  Serial.println("  CICLO - Ciclo completo: pegar + QR + soltar");
+  
+  zerarPosicao();
+  Serial.println("\nSistema pronto!");
+}
+
+void loop() {
+  // Pisca LED para indicar que está ativo
+  static unsigned long ultimoPisca = 0;
+  if(millis() - ultimoPisca > 2000) {
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    ultimoPisca = millis();
+  }
+  
+  // Processa comandos seriais
+  if (Serial.available() > 0) {
+    String comando = Serial.readStringUntil('\n');
+    comando.trim();
+    
+    if (comando.length() > 0) {
+      char cmd = comando.charAt(0);
+      
+      Serial.print(">>> Comando: ");
+      Serial.println(comando);
+      
+      switch(cmd) {
+        case 'C':
+        case 'c':
+          calibracao_inicial();
+          break;
+          
+        case 'P':
+        case 'p':
+          pegar_objeto();
+          break;
+          
+        case 'E':
+        case 'e':
+          colocar_na_esteira();
+          break;
+          
+        case 'V':
+        case 'v':
+          voltar_posicao_inicial();
+          break;
+          
+        case 'M':
+        case 'm':
+          Serial.println("Testando motores de passo...");
+          Serial.println("Ambos motores CW (200 passos)...");
+          rotateAccel_Both(200, true, 10.0f);
+          delay(500);
+          Serial.println("Ambos motores CCW (200 passos)...");
+          rotateAccel_Both(200, false, 10.0f);
+          Serial.println("Teste concluido!");
+          break;
+          
+        case 'S':
+        case 's':
+          Serial.println("Executando sequencia completa...");
+          calibracao_inicial();
+          delay(1000);
+          pegar_objeto();
+          delay(500);
+          colocar_na_esteira();
+          delay(500);
+          voltar_posicao_inicial();
+          Serial.println("Sequencia completa finalizada!");
+          break;
+          
+        case 'G':
+        case 'g':
+          if (comando.length() > 1) {
+            int angulo = comando.substring(1).toInt();
+            Serial.print("Movendo garra para: ");
+            Serial.println(angulo);
+            move_servo_gradual(servoGarra, posicoes.garra, angulo, 20);
+            posicoes.garra = angulo;
+          }
+          break;
+          
+        case 'B':
+        case 'b':
+          if (comando.length() > 1) {
+            int angulo = comando.substring(1).toInt();
+            Serial.print("Movendo base para: ");
+            Serial.println(angulo);
+            move_servo_gradual(servoBase, posicoes.base, angulo, 20);
+            posicoes.base = angulo;
+          }
+          break;
+          
+        case 'A':
+        case 'a':
+          if (comando.length() > 1) {
+            int angulo = comando.substring(1).toInt();
+            Serial.print("Movendo antebraco para: ");
+            Serial.println(angulo);
+            move_servo_gradual(servoAntebraco, posicoes.antebraco, angulo, 20);
+            posicoes.antebraco = angulo;
+          }
+          break;
+          
+        case 'R':
+        case 'r':
+          if (comando.length() > 1) {
+            int angulo = comando.substring(1).toInt();
+            Serial.print("Movendo braco para: ");
+            Serial.println(angulo);
+            move_servo_gradual(servoBraco, posicoes.braco, angulo, 20);
+            posicoes.braco = angulo;
+          }
+          break;
+          
+        case '1':
+          if (comando.length() > 2) {
+            long passos = comando.substring(2).toInt();
+            if (passos > 0) {
+              bool cw = (comando.charAt(1) == 'F' || comando.charAt(1) == 'f');
+              Serial.print("Motor1 ");
+              Serial.print(cw ? "FRENTE" : "TRAS");
+              Serial.print(" - ");
+              Serial.print(passos);
+              Serial.println(" passos");
+              moverMotor1_ComPosicao(passos, !cw, 10.0f);
+            }
+          }
+          break;
+          
+        case '2':
+          if (comando.length() > 2) {
+            long passos = comando.substring(2).toInt();
+            if (passos > 0) {
+              bool cw = (comando.charAt(1) == 'F' || comando.charAt(1) == 'f');
+              Serial.print("Motor2 ");
+              Serial.print(cw ? "FRENTE" : "TRAS");
+              Serial.print(" - ");
+              Serial.print(passos);
+              Serial.println(" passos");
+              moverMotor2_ComPosicao(passos, cw, 10.0f);
+            }
+          }
+          break;
+          
+        case '3':
+          if (comando.length() > 2) {
+            long passos = comando.substring(2).toInt();
+            if (passos > 0) {
+              bool cw = (comando.charAt(1) == 'F' || comando.charAt(1) == 'f');
+              Serial.print("Motor3 ");
+              Serial.print(cw ? "FRENTE" : "TRAS");
+              Serial.print(" - ");
+              Serial.print(passos);
+              Serial.println(" passos");
+              moverMotor3_ComPosicao(passos, cw, 10.0f);
+            }
+          }
+          break;
+          
+        case 'Z':
+        case 'z':
+          zerarPosicao();
+          break;
+          
+        case '?':
+          mostrarPosicao();
+          break;
+          
+        case 'U':
+        case 'u':
+          desfazerUltimoMovimento();
+          break;
+          
+        case 'Q':
+        case 'q':
+          if (comando.startsWith("QR") || comando.startsWith("qr")) {
+            // Novo formato: QR1, QR2, QR3, QR4
+            if (comando.length() >= 3) {
+              int id = comando.substring(2).toInt();
+              if (id >= 1 && id <= 4) {
+                processarQRCode(id);
+              } else {
+                Serial.println("ID invalido! Use QR1, QR2, QR3 ou QR4");
+              }
+            }
+          }
+          break;
+          
+        case 'T':
+        case 't':
+          Serial.println("Teste de pinos - Motor 1 (30,31,32,33)");
+          for(int i = 0; i < 5; i++) {
+            Serial.print("Piscada ");
+            Serial.println(i+1);
+            digitalWrite(IN1_M1, HIGH);
+            digitalWrite(IN2_M1, HIGH);
+            digitalWrite(IN3_M1, HIGH);
+            digitalWrite(IN4_M1, HIGH);
+            delay(500);
+            digitalWrite(IN1_M1, LOW);
+            digitalWrite(IN2_M1, LOW);
+            digitalWrite(IN3_M1, LOW);
+            digitalWrite(IN4_M1, LOW);
+            delay(500);
+          }
+          Serial.println("Teste concluido!");
+          break;
+          
+        default:
+          if (comando == "CICLO") {
+            Serial.println("=== CICLO COMPLETO INICIADO ===");
+            pegar_objeto();
+            delay(2000); // Aguarda sinal QR do Python
+            colocar_na_esteira();
+            delay(3000); // Aguarda esteira
+            voltar_posicao_inicial();
+            Serial.println("=== CICLO COMPLETO FINALIZADO ===");
+          } else {
+            Serial.println("Comando desconhecido!");
+          }
+          break;
+      }
+      
+      Serial.println("OK");
+    }
+  }
+}

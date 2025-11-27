@@ -1,0 +1,238 @@
+# Sistema de Controle - Garra Robótica com QR Code
+
+Sistema completo de automação com Arduino Mega 2560, servos, motores de passo e leitura de QR Code.
+
+## 📋 Componentes
+
+### Hardware
+- **Arduino Mega 2560**
+- **Servos** (4x):
+  - Pino 3: Garra
+  - Pino 5: Base
+  - Pino 8: Antebraço
+  - Pino 10: Braço
+- **Motores de Passo** (2x - 28BYJ-48):
+  - Motor 1: Pinos 30, 31, 32, 33
+  - Motor 2: Pinos 36, 37, 38, 39
+- **Câmera** (webcam USB para leitura de QR Code)
+
+### Software
+- PlatformIO
+- Python 3.x
+- OpenCV
+- PySerial
+- Pyzbar
+
+## 🚀 Instalação
+
+### 1. Dependências Python
+
+```bash
+pip install pyserial opencv-python pyzbar
+```
+
+### 2. Compilar e Fazer Upload do Firmware
+
+```bash
+cd /home/renan/Documentos/PlatformIO/Projects/TESTESMOTOR
+pio run --target upload
+```
+
+### 3. Executar o Sistema Python
+
+```bash
+python3 controle_sistema.py
+```
+
+## 📖 Funcionamento
+
+### Ciclo Completo Automático
+
+1. **Pegar Objeto**: A garra se move e captura o objeto
+2. **Ler QR Code**: Sistema aguarda QR Code para determinar destino
+3. **Posicionar**: Move base e antebraço para posição de seleção
+4. **Soltar**: Deposita objeto na esteira
+5. **Retornar**: Volta à posição inicial
+
+### Destinos QR Code
+
+Os QR Codes devem conter uma letra (A-E):
+
+| QR Code | Base (°) | Antebraço (°) |
+|---------|----------|---------------|
+| A       | 0        | 130           |
+| B       | 45       | 130           |
+| C       | 90       | 130           |
+| D       | 135      | 130           |
+| E       | 180      | 130           |
+
+## 🎮 Comandos Disponíveis
+
+### Via Python (Recomendado)
+Execute `python3 controle_sistema.py` e use o menu interativo.
+
+### Via Serial (Monitor Serial)
+
+#### Servos
+- `C` - Calibração inicial
+- `P` - Pegar objeto
+- `E` - Colocar na esteira
+- `V` - Voltar posição inicial
+- `S` - Sequência completa
+- `G<ângulo>` - Mover garra (ex: G90)
+- `B<ângulo>` - Mover base (ex: B180)
+- `A<ângulo>` - Mover antebraço (ex: A60)
+- `R<ângulo>` - Mover braço (ex: R120)
+
+#### Motores de Passo
+- `M` - Teste motores (ambos)
+- `1F<passos>` - Motor 1 frente (ex: 1F100)
+- `1B<passos>` - Motor 1 trás (ex: 1B100)
+- `2F<passos>` - Motor 2 frente (ex: 2F100)
+- `2B<passos>` - Motor 2 trás (ex: 2B100)
+- `Z` - Zerar posições
+- `?` - Mostrar posição atual
+
+#### Sistema Integrado
+- `QR<base>,<antebraço>` - Mover para seleção (ex: QR45,90)
+- `CICLO` - Ciclo completo
+
+## 🔧 Testes de Motores de Passo
+
+O firmware agora mostra em tempo real a posição dos motores:
+
+```
+→ Enviado: 1F100
+← Arduino: Motor1 FRENTE - 100 passos
+← Arduino: POS:10,0|GRAUS:1.8,0.0
+← Arduino: POS:20,0|GRAUS:3.5,0.0
+← Arduino: POS:30,0|GRAUS:5.3,0.0
+...
+← Arduino: POS:100,0|GRAUS:17.6,0.0
+```
+
+### Formato da Saída de Posição
+
+`POS:X,Y|GRAUS:A,B`
+
+- **X, Y**: Posição em passos (Motor 1, Motor 2)
+- **A, B**: Posição em graus (Motor 1, Motor 2)
+
+## 📊 Fluxo do Sistema
+
+```
+┌─────────────────┐
+│ Inicialização   │
+│ - Calibração    │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Pegar Objeto    │
+│ - Move garra    │
+│ - Captura       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Ler QR Code     │
+│ - Câmera ativa  │
+│ - Detecta dest. │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Posicionar      │
+│ - Move servos   │
+│ - Base + Ante.  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Soltar Objeto   │
+│ - Esteira       │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Retornar        │
+│ - Pos. inicial  │
+└─────────────────┘
+```
+
+## 🐛 Troubleshooting
+
+### Câmera não detectada
+```python
+# Tente diferentes índices
+controlador.inicializar_camera(indice=1)  # ou 2, 3...
+```
+
+### Porta serial incorreta
+- Linux: Geralmente `/dev/ttyACM0` ou `/dev/ttyUSB0`
+- Windows: `COM3`, `COM4`, etc.
+
+Para listar portas:
+```bash
+ls /dev/tty*
+```
+
+### QR Code não é lido
+- Certifique-se de boa iluminação
+- Mantenha o QR Code estável
+- Aumente o tamanho do QR Code
+- Ajuste a distância da câmera
+
+### Motores de passo não giram suavemente
+- Verifique conexões dos pinos
+- Confirme alimentação adequada (5V para 28BYJ-48)
+- Teste com comandos pequenos primeiro (50-100 passos)
+
+## 📝 Exemplos de Uso
+
+### Teste Rápido de Motores
+
+Via Python:
+```python
+controlador.enviar_comando('1F100')  # Motor 1, 100 passos frente
+controlador.enviar_comando('?')      # Mostra posição
+controlador.enviar_comando('Z')      # Zera contadores
+```
+
+Via Monitor Serial:
+```
+1F100
+?
+Z
+```
+
+### Ciclo Completo Manual
+
+```python
+controlador.enviar_comando('C')      # Calibra
+time.sleep(2)
+controlador.enviar_comando('P')      # Pega objeto
+# ... mostra QR Code ...
+controlador.enviar_comando('QR90,130')  # Move para posição C
+controlador.enviar_comando('E')      # Solta na esteira
+controlador.enviar_comando('V')      # Volta
+```
+
+## 📄 Estrutura do Projeto
+
+```
+TESTESMOTOR/
+├── src/
+│   └── main.cpp              # Firmware Arduino
+├── controle_sistema.py       # Interface Python
+├── platformio.ini           # Configuração PlatformIO
+└── README.md                # Este arquivo
+```
+
+## 🔐 Licença
+
+Projeto educacional - Livre para uso e modificação
+
+## 👤 Autor
+
+Sistema automatizado - 2025

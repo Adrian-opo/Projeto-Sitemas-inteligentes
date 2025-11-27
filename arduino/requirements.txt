@@ -1,0 +1,18 @@
+# Dependências Python para Sistema de Controle
+# Instale com: pip install -r requirements.txt
+
+# Comunicação Serial
+pyserial>=3.5
+
+# Visão Computacional e QR Code
+opencv-python>=4.8.0
+pyzbar>=0.1.9
+
+# Geração de QR Codes (para testes)
+qrcode[pil]>=7.4.2
+
+# Processamento de imagens
+Pillow>=10.0.0
+
+# Opcional: Interface gráfica melhorada
+# numpy>=1.24.0

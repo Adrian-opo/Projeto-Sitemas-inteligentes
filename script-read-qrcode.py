@@ -228,7 +228,7 @@ class QRReader:
     def _send_to_backend(self, payload: dict):
         """
         Envia o objeto lido para o backend Django (POST JSON).
-        Agora com logs mais detalhados.
+        Também envia a região para o Arduino via API.
         """
         if not self.backend_url:
             print("[BACKEND] URL não configurada, não enviando.", flush=True)
@@ -242,12 +242,45 @@ class QRReader:
             url += "/"
 
         try:
+            # 1. Envia pacote para o backend Django
             print(f"[BACKEND] Enviando para {url}: {payload}", flush=True)
             resp = requests.post(url, json=payload, timeout=5)
             print(f"[BACKEND] Resposta {resp.status_code}: {resp.text[:200]!r}", flush=True)
             resp.raise_for_status()
+            
+            # 2. Envia região para o Arduino via API
+            regiao = payload.get("regiao")
+            if regiao:
+                self._send_regiao_to_arduino(regiao)
+                
         except Exception as e:
             print(f"[BACKEND ERRO] {e}", flush=True)
+
+    def _send_regiao_to_arduino(self, regiao: str):
+        """
+        Envia a região detectada para o Arduino via API Django.
+        """
+        if not self.backend_url or not regiao:
+            return
+        
+        try:
+            # Constrói URL do endpoint de região
+            base_url = self.backend_url.rsplit('/api/', 1)[0]
+            arduino_url = f"{base_url}/api/arduino/regiao/"
+            
+            payload = {"regiao": regiao}
+            print(f"[ARDUINO] Enviando região para {arduino_url}: {regiao}", flush=True)
+            
+            resp = requests.post(arduino_url, json=payload, timeout=10)
+            data = resp.json()
+            
+            if data.get("sucesso"):
+                print(f"[ARDUINO] Região enviada com sucesso!", flush=True)
+            else:
+                print(f"[ARDUINO] Resposta: {data}", flush=True)
+                
+        except Exception as e:
+            print(f"[ARDUINO ERRO] {e}", flush=True)
 
     def _loop(self):
         while not self._stop.is_set():
