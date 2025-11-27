@@ -10,9 +10,6 @@
 // Movimento de 1500 passos para posicionar cada defletor
 const long PASSOS_REGIAO = 1500;
 
-// Tempo de espera para o objeto passar na esteira (ms)
-const unsigned long TEMPO_ESTEIRA = 5000;
-
 // ===== MOTORES DE PASSO =====
 // Motor 1: pinos 30, 31, 32, 33 (Controle do defletor A)
 const int IN1_M1 = 30, IN2_M1 = 31, IN3_M1 = 32, IN4_M1 = 33;
@@ -286,11 +283,11 @@ void moverDefletorParaRegiao(String regiao) {
   Serial.println("DEFLETOR_POSICIONADO");
 }
 
-void colocar_na_esteira() {
+void soltar_objeto() {
   Serial.println("SOLTANDO...");
   estadoAtual = SOLTANDO_OBJETO;
   
-  // Descer para colocar na esteira
+  // Descer para soltar
   move_servo_gradual(servoBraco, posicoes.braco, 37, 20);
   posicoes.braco = 37;
   delay(300);
@@ -351,7 +348,8 @@ void voltar_posicao_inicial() {
 
 // =====================================================================
 // CICLO COMPLETO AUTOMÁTICO
-// Fluxo: Defletor → Soltar → Aguardar Esteira → Retornar → Posição Inicial
+// Fluxo: Defletor → Soltar → Retornar Defletor → Posição Inicial
+// (Esteira controlada independentemente por outro sistema)
 // =====================================================================
 void ciclo_automatico(String regiao) {
   Serial.println("=== INICIANDO CICLO AUTOMATICO ===");
@@ -364,18 +362,15 @@ void ciclo_automatico(String regiao) {
   moverDefletorParaRegiao(regiao);
   delay(500);
   
-  // 2. Soltar objeto na esteira
-  colocar_na_esteira();
+  // 2. Soltar objeto
+  soltar_objeto();
+  delay(500);
   
-  // 3. Aguardar objeto passar pelo defletor
-  Serial.println("AGUARDANDO_ESTEIRA...");
-  delay(TEMPO_ESTEIRA);
-  
-  // 4. Retornar defletor à posição inicial
+  // 3. Retornar defletor à posição inicial
   retornarDefletor();
   delay(500);
   
-  // 5. Voltar garra à posição inicial
+  // 4. Voltar garra à posição inicial
   voltar_posicao_inicial();
   
   Serial.println("=== CICLO FINALIZADO ===");
