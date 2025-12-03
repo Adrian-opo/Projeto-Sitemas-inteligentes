@@ -287,19 +287,28 @@ void soltar_objeto() {
   Serial.println("SOLTANDO...");
   estadoAtual = SOLTANDO_OBJETO;
   
-  // Descer para soltar
-  move_servo_gradual(servoBraco, posicoes.braco, 37, 20);
-  posicoes.braco = 37;
+  // Esticar antebraço para frente antes de soltar
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 90, 20);
+  posicoes.antebraco = 90;
   delay(300);
   
-  // Abrir garra (soltar objeto)
-  move_servo_gradual(servoGarra, posicoes.garra, 120, 20);
-  posicoes.garra = 120;
+  // Descer para soltar (menos que antes: 50 ao invés de 37)
+  move_servo_gradual(servoBraco, posicoes.braco, 50, 20);
+  posicoes.braco = 50;
+  delay(300);
+  
+  // Abrir garra ao MÁXIMO (soltar objeto) - valor menor = mais aberto
+  move_servo_gradual(servoGarra, posicoes.garra, 60, 20);
+  posicoes.garra = 60;
   delay(300);
   
   // Subir
   move_servo_gradual(servoBraco, posicoes.braco, 80, 20);
   posicoes.braco = 80;
+  
+  // Recolher antebraço
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 60, 20);
+  posicoes.antebraco = 60;
   
   Serial.println("OBJETO_SOLTO");
 }
@@ -307,6 +316,10 @@ void soltar_objeto() {
 void retornarDefletor() {
   Serial.println("RETORNANDO_DEFLETOR...");
   estadoAtual = RETORNANDO_DEFLETOR;
+  
+  // Aguarda 5 segundos para o objeto passar pela esteira
+  Serial.println("Aguardando 5s para objeto passar...");
+  delay(5000);
   
   // Retorna motor 1 se moveu (inverte direção)
   if (motor1_moveu) {
@@ -348,7 +361,7 @@ void voltar_posicao_inicial() {
 
 // =====================================================================
 // CICLO COMPLETO AUTOMÁTICO
-// Fluxo: Defletor → Soltar → Retornar Defletor → Posição Inicial
+// Fluxo: Recolher Braço → Girar Direita → Defletor → Soltar → Retornar → Posição Inicial
 // (Esteira controlada independentemente por outro sistema)
 // =====================================================================
 void ciclo_automatico(String regiao) {
@@ -358,19 +371,31 @@ void ciclo_automatico(String regiao) {
   
   regiaoAtual = regiao;
   
-  // 1. Mover defletor para a posição correta ANTES de soltar
+  // 1. Recolher braço (subir com o objeto)
+  Serial.println("RECOLHENDO_BRACO...");
+  move_servo_gradual(servoBraco, posicoes.braco, 120, 20);
+  posicoes.braco = 120;
+  delay(300);
+  
+  // 2. Girar base para a DIREITA (posição de soltar na esteira)
+  Serial.println("GIRANDO_PARA_DIREITA...");
+  move_servo_gradual(servoBase, posicoes.base, 0, 20);  // 0 = direita
+  posicoes.base = 0;
+  delay(500);
+  
+  // 3. Mover defletor para a posição correta ANTES de soltar
   moverDefletorParaRegiao(regiao);
   delay(500);
   
-  // 2. Soltar objeto
+  // 4. Soltar objeto
   soltar_objeto();
   delay(500);
   
-  // 3. Retornar defletor à posição inicial
+  // 5. Retornar defletor à posição inicial
   retornarDefletor();
   delay(500);
   
-  // 4. Voltar garra à posição inicial
+  // 6. Voltar garra à posição inicial
   voltar_posicao_inicial();
   
   Serial.println("=== CICLO FINALIZADO ===");

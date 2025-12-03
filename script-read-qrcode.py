@@ -29,7 +29,7 @@ def get_public_video_url():
 # URL padrão do backend (pode sobrescrever com env ou --backend-url)
 BACKEND_URL_DEFAULT = os.environ.get(
     "ARDUINO_BACKEND_URL",
-    "http://127.0.0.1:8000/api/arduino/pacote/"
+    "http://127.0.0.1:8001/api/arduino/pacote/"
 )
 
 # =========================

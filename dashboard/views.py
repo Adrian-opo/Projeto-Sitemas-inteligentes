@@ -89,9 +89,12 @@ class ArduinoController:
     
     def enviar_regiao(self, regiao):
         """Envia região para o Arduino processar."""
-        if not self.aguardando_qr:
-            return False, "Arduino não está aguardando QR"
-        return self.enviar_comando(f"REGIAO:{regiao}")
+        # Envia mesmo se não estiver no estado correto - o Arduino vai responder com erro se necessário
+        print(f"[Arduino] Enviando região: {regiao} (aguardando_qr={self.aguardando_qr})")
+        sucesso, resposta = self.enviar_comando(f"REGIAO:{regiao}")
+        if sucesso:
+            self.aguardando_qr = False  # Reseta flag após enviar
+        return sucesso, resposta
     
     def is_connected(self):
         """Verifica se está conectado."""
