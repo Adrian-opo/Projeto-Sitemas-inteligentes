@@ -284,22 +284,22 @@ void moverDefletorParaRegiao(String regiao) {
 }
 
 void soltar_objeto() {
-  Serial.println("SOLTANDO...");
+  Serial.println("SOLTANDO...2");
   estadoAtual = SOLTANDO_OBJETO;
   
-  // Esticar antebraço para frente (mesmo alcance de quando pega o objeto)
-  move_servo_gradual(servoAntebraco, posicoes.antebraco, 120, 20);
-  posicoes.antebraco = 100;
+  // Esticar antebraço para frente
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 140, 20);
+  posicoes.antebraco = 140;
   delay(300);
   
-  // Descer braço para soltar (mesmo valor de quando pega: 80 graus)
-  move_servo_gradual(servoBraco, posicoes.braco, 10, 20);
-  posicoes.braco = 10;
+  //Descer braço MAIS ALTO (80 graus ao invés de 10)
+  move_servo_gradual(servoBraco, posicoes.braco, 45, 20);
+  posicoes.braco = 45;
   delay(300);
   
-  // Abrir garra ao MÁXIMO (soltar objeto) - valor menor = mais aberto
-  move_servo_gradual(servoGarra, posicoes.garra, 60, 20);
-  posicoes.garra = 60;
+  // Abrir garra (soltar objeto)
+  move_servo_gradual(servoGarra, posicoes.garra, 120, 20);
+  posicoes.garra = 120;
   delay(300);
 
   // Recolher antebraço
@@ -307,8 +307,8 @@ void soltar_objeto() {
   posicoes.antebraco = 60;
   
   // Subir
-  move_servo_gradual(servoBraco, posicoes.braco, 80, 20);
-  posicoes.braco = 80;
+  move_servo_gradual(servoBraco, posicoes.braco, 120, 20);
+  posicoes.braco = 120;
   
   Serial.println("OBJETO_SOLTO");
 }
