@@ -12,7 +12,7 @@ const long PASSOS_REGIAO = 1500;
 
 // ===== MOTORES DE PASSO =====
 // Motor 1: pinos 30, 31, 32, 33 (Controle do defletor A)
-const int IN1_M1 = 30, IN2_M1 = 31, IN3_M1 = 32, IN4_M1 = 33;
+const int IN1_M1 = 36, IN2_M1 = 37, IN3_M1 = 38, IN4_M1 = 39;
 
 // Motor 3: pinos 26, 27, 28, 29 (Controle do defletor B - lado oposto)
 const int IN1_M3 = 26, IN2_M3 = 27, IN3_M3 = 28, IN4_M3 = 29;
@@ -33,7 +33,7 @@ volatile int sidx_M3 = 0;
 const int SERVO_GARRA = 3;
 const int SERVO_BASE = 5;
 const int SERVO_ANTEBRACO = 8;
-const int SERVO_BRACO = 10;
+const int SERVO_BRACO = 9;
 
 Servo servoGarra;
 Servo servoBase;
@@ -287,28 +287,28 @@ void soltar_objeto() {
   Serial.println("SOLTANDO...");
   estadoAtual = SOLTANDO_OBJETO;
   
-  // Esticar antebraço para frente antes de soltar
-  move_servo_gradual(servoAntebraco, posicoes.antebraco, 90, 20);
-  posicoes.antebraco = 90;
+  // Esticar antebraço para frente (mesmo alcance de quando pega o objeto)
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 120, 20);
+  posicoes.antebraco = 100;
   delay(300);
   
-  // Descer para soltar (menos que antes: 50 ao invés de 37)
-  move_servo_gradual(servoBraco, posicoes.braco, 50, 20);
-  posicoes.braco = 50;
+  // Descer braço para soltar (mesmo valor de quando pega: 80 graus)
+  move_servo_gradual(servoBraco, posicoes.braco, 10, 20);
+  posicoes.braco = 10;
   delay(300);
   
   // Abrir garra ao MÁXIMO (soltar objeto) - valor menor = mais aberto
   move_servo_gradual(servoGarra, posicoes.garra, 60, 20);
   posicoes.garra = 60;
   delay(300);
+
+  // Recolher antebraço
+  move_servo_gradual(servoAntebraco, posicoes.antebraco, 60, 20);
+  posicoes.antebraco = 60;
   
   // Subir
   move_servo_gradual(servoBraco, posicoes.braco, 80, 20);
   posicoes.braco = 80;
-  
-  // Recolher antebraço
-  move_servo_gradual(servoAntebraco, posicoes.antebraco, 60, 20);
-  posicoes.antebraco = 60;
   
   Serial.println("OBJETO_SOLTO");
 }
